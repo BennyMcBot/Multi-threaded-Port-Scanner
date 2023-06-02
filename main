@@ -1,0 +1,137 @@
+#include <iostream>
+#include <cstdlib>
+#include <string>
+#include <cstring>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h> // Include unistd library for close()
+
+
+
+using namespace std;
+
+
+
+/*
+
+This function takes a host (as a string) and a port number (as an integer) and attempts to connect to the specified port on the host. 
+It returns true if the connection is successful (meaning the port is open) and false otherwise (meaning the port is closed or some error occurred). 
+This function uses raw sockets and the TCP/IP protocol to establish the connection. It is a basic example of a port scanner.
+
+*/
+
+
+
+
+#include <iostream>
+#include <cstdlib>
+#include <string>
+#include <cstring>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <thread>
+#include <mutex>
+#include <unistd.h>
+
+using namespace std;
+
+mutex mtx; // Used to prevent console output from being jumbled
+
+bool scanPort(string target, int port) {
+
+    // Get the hostent structure for the target host
+    struct hostent *host = gethostbyname(target.c_str());
+    // If gethostbyname returned a null pointer, the host was not found
+    if (!host) {
+        cerr << "Error: Unable to get host by name" << endl;
+        return false;
+    }
+
+    // Define a sockaddr_in structure to hold the host's address information
+    sockaddr_in sockAddr;
+    // Initialize the structure to zero using memset
+    memset(&sockAddr, 0, sizeof(sockAddr));
+    // Set the address family (IPv4)
+    sockAddr.sin_family = AF_INET;
+    // Set the port number, converted to network byte order using htons
+    sockAddr.sin_port = htons(port);
+    // Set the IP address from the hostent structure
+    sockAddr.sin_addr = *((struct in_addr *)host->h_addr);
+
+    // Create a socket and get its file descriptor
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    // If the socket function returned a negative value, an error occurred
+    if (sock < 0) {
+        cerr << "Error: Unable to create socket" << endl;
+        return false;
+    }
+
+    // Define a timeval structure to set the timeout
+    struct timeval timeout;      
+    // Set the timeout value in seconds
+    timeout.tv_sec = 4;
+    // Set the timeout value in microseconds
+    timeout.tv_usec = 4000000;
+
+    // Set the receive timeout using setsockopt
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0) {
+        cerr << "Error: Unable to set socket options" << endl;
+    }
+    // Set the send timeout using setsockopt
+    if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) < 0) {
+        cerr << "Error: Unable to set socket options" << endl;
+    }
+
+    // Attempt to connect to the host on the specified port
+    int status = connect(sock, (struct sockaddr*)&sockAddr, sizeof(sockAddr));
+    // Close the socket
+    close(sock);
+
+    // Check the status of the connect function
+    if (status < 0) {
+        // If the status is negative, an error occurred, so the port is closed
+        return false;
+    } else {
+        // If the status is not negative, the connection was successful, so the port is open
+        return true;
+    }
+
+}
+
+void scanPortThreaded(string target, int port) {
+    bool open = scanPort(target, port);
+    mtx.lock();
+    if (open) {
+        cout << "Port " << port << " is open." << endl;
+    } else {
+        cout << "Port " << port << " is closed." << endl;
+    }
+    mtx.unlock();
+}
+
+int main(int argc, char *argv[]) {
+    // Your new threaded main function goes here
+    if (argc != 4) {
+        cout << "Usage: " << argv[0] << " <host> <start_port> <end_port>" << endl;
+        return EXIT_FAILURE;
+    }
+
+    string host = argv[1];
+    int start_port = atoi(argv[2]);
+    int end_port = atoi(argv[3]);
+
+    thread threads[end_port - start_port + 1]; // One thread per port
+    int threadCount = 0;
+    for (int port = start_port; port <= end_port; port++) {
+        threads[threadCount++] = thread(scanPortThreaded, host, port);
+    }
+
+    // Wait for all threads to finish
+    for (int i = 0; i < threadCount; i++) {
+        threads[i].join();
+    }
+
+    return EXIT_SUCCESS;
+}
